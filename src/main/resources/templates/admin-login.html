@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>관리자 로그인 - Location Score</title>
+    <style>
+        /* [1] 메인 페이지와 동일한 레이아웃 (통일성) */
+        body {
+            font-family: 'Pretendard', 'Noto Sans KR', sans-serif;
+            margin: 0; padding: 0;
+            background: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        /* [2] 카드 디자인 유지 */
+        .card {
+            background: white;
+            width: 380px;
+            padding: 50px 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+
+        /* [3] 타이포그래피 */
+        h1 { color: #2c3e50; margin: 10px 0 30px 0; font-size: 24px; letter-spacing: -0.5px; }
+        .icon { font-size: 60px; margin-bottom: 10px; display: inline-block; animation: float 3s ease-in-out infinite; }
+
+        /* [4] 입력창 디자인 (부드러운 느낌) */
+        .input-group { margin-bottom: 15px; text-align: left; }
+        input {
+            width: 100%;
+            padding: 15px;
+            border: 1px solid #e1e4e8;
+            background: #f8f9fa;
+            border-radius: 12px; /* 버튼과 동일한 곡률 */
+            box-sizing: border-box; /* 패딩 포함 크기 계산 */
+            font-size: 15px;
+            transition: all 0.2s;
+            outline: none;
+        }
+        input:focus {
+            background: #fff;
+            border-color: #007bff;
+            box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+        }
+        input::placeholder { color: #adb5bd; }
+
+        /* [5] 로그인 버튼 (메인 페이지 버튼 스타일 계승) */
+        .btn-login {
+            display: block;
+            width: 100%;
+            padding: 16px 0;
+            margin-top: 20px;
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 17px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,123,255,0.3);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,123,255,0.4);
+        }
+
+        /* [6] 에러 메시지 & 홈으로 가기 링크 */
+        .error-msg {
+            color: #e74c3c;
+            font-size: 13px;
+            margin-bottom: 20px;
+            font-weight: bold;
+            display: none; /* 평소엔 숨김 */
+            background: #fde8e7;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .home-link {
+            display: inline-block;
+            margin-top: 30px;
+            color: #adb5bd;
+            font-size: 13px;
+            text-decoration: none;
+            transition: color 0.3s;
+            border-bottom: 1px solid transparent;
+        }
+        .home-link:hover {
+            color: #495057;
+            border-bottom: 1px solid #495057;
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div class="icon">🔒</div>
+    <h1>관리자 접속</h1>
+
+    <div th:if="${param.error}" id="errorBox" class="error-msg" style="display: block;">
+        ⚠️ <span th:text="${param.exception != null ? param.exception : '아이디 또는 비밀번호가 일치하지 않습니다.'}">아이디 또는 비밀번호가 일치하지 않습니다.</span>
+    </div>
+
+    <form action="/login-proc" method="post">
+        <div class="input-group">
+            <input type="text" name="username" placeholder="아이디" required autocomplete="off">
+        </div>
+        <div class="input-group">
+            <input type="password" name="password" placeholder="비밀번호" required>
+        </div>
+        <button type="submit" class="btn-login">로그인</button>
+    </form>
+
+    <a href="/" class="home-link">
+        ← 메인으로 돌아가기
+    </a>
+</div>
+
+<script>
+    // URL에 ?error가 있으면 에러 메시지를 보여줌 (Spring Security 기본 동작 연동)
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('error')) {
+        const errorBox = document.getElementById('errorBox');
+        errorBox.style.display = 'block';
+
+        // 카드 흔들기 효과 (틀렸다는 피드백)
+        const card = document.querySelector('.card');
+        card.animate([
+            { transform: 'translateX(0)' },
+            { transform: 'translateX(-5px)' },
+            { transform: 'translateX(5px)' },
+            { transform: 'translateX(0)' }
+        ], { duration: 300 });
+    }
+</script>
+
+</body>
+</html>

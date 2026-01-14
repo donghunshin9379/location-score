@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Location Score - 입지 분석 전문가</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Pretendard', sans-serif; overflow: hidden; background: #f8f9fa; }
+
+        /* 지도 */
+        #map { width: 100%; height: 100vh; z-index: 1; transition: width 0.3s, margin-right 0.3s; }
+
+        /* 분석 버튼 */
+        .search-container { position: absolute; top: 30px; left: 50%; transform: translateX(-50%); z-index: 1000; }
+        .btn-main {
+            background: #2c3e50; color: white; border: none; padding: 12px 30px;
+            border-radius: 50px; font-weight: bold; font-size: 16px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3); cursor: pointer;
+            display: flex; align-items: center; gap: 10px; transition: all 0.2s;
+        }
+        .btn-main:hover { background: #34495e; transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.4); }
+        .btn-main:disabled { background: #95a5a6; cursor: not-allowed; transform: none; }
+
+        /* 내 위치 버튼 */
+        .btn-location {
+            position: absolute; bottom: 30px; right: 20px; z-index: 1000;
+            width: 50px; height: 50px; background: white; border-radius: 50%;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2); border: none; cursor: pointer;
+            font-size: 24px; display: flex; align-items: center; justify-content: center;
+            transition: 0.2s;
+        }
+        .btn-location:hover { background: #f1f1f1; transform: scale(1.1); }
+
+        /* 사이드바 */
+        .sidebar {
+            position: absolute; top: 0; right: -420px; width: 420px; height: 100%;
+            background: white; z-index: 2000; box-shadow: -5px 0 20px rgba(0,0,0,0.1);
+            transition: right 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex; flex-direction: column;
+        }
+        .sidebar.active { right: 0; }
+        .sidebar-header { padding: 25px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; background: #fff; }
+        .sidebar-title { font-size: 18px; font-weight: 800; color: #333; }
+        .btn-close { border: none; background: none; font-size: 28px; cursor: pointer; color: #999; }
+
+        .sidebar-content { flex: 1; overflow-y: auto; padding: 20px 25px; }
+
+        /* 점수 박스 */
+        .score-box { text-align: center; margin-bottom: 20px; position: relative; }
+        .score-number { font-size: 72px; font-weight: 900; color: #2c3e50; line-height: 1; letter-spacing: -2px; }
+        .score-label { font-size: 14px; color: #888; margin-top: 5px; font-weight: 500; }
+        .score-rank { font-size: 22px; font-weight: 800; margin-top: 10px; color: #007bff; }
+
+        /* 차트 영역 */
+        .chart-wrapper { position: relative; height: 240px; width: 100%; display: flex; justify-content: center; margin-bottom: 30px; }
+
+        /* 리스트 스타일 */
+        .stat-list { border-top: 1px solid #eee; }
+        .category-group { border-bottom: 1px solid #f1f3f5; }
+        .category-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px 10px; cursor: pointer; transition: background 0.2s;
+        }
+        .category-header:hover { background: #f8f9fa; }
+        .cat-info { display: flex; align-items: center; gap: 8px; }
+        .cat-icon { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+        .cat-title { font-weight: 600; color: #333; font-size: 15px; }
+        .cat-count { font-weight: 700; color: #2c3e50; font-size: 15px; }
+        .arrow-icon { font-size: 12px; color: #bbb; transition: transform 0.3s; }
+        .category-group.active .arrow-icon { transform: rotate(180deg); }
+
+        /* 가게 상세 리스트 */
+        .shop-list { display: none; background: #fafafa; padding: 10px 15px; border-radius: 8px; margin: 0 10px 15px 10px; }
+        .category-group.active .shop-list { display: block; animation: fadeIn 0.3s; }
+        .shop-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed #e9ecef; cursor: pointer; }
+        .shop-item:last-child { border-bottom: none; }
+        .shop-item:hover .shop-name { color: #007bff; }
+        .shop-name { font-size: 14px; color: #495057; font-weight: 600; transition: color 0.2s; }
+        .shop-dist { font-size: 12px; color: #868e96; background: #fff; padding: 2px 6px; border-radius: 4px; border: 1px solid #eee; }
+
+        /* 애니메이션 */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* 커스텀 마커 */
+        .custom-div-icon {
+            background: white; border-radius: 50%; border: 2px solid #fff;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.3); text-align: center; line-height: 12px;
+        }
+
+        /* 반응형 */
+        @media (max-width: 768px) {
+            .sidebar { top: auto; bottom: -100%; right: 0; width: 100%; height: 70vh; border-radius: 20px 20px 0 0; }
+            .sidebar.active { right: 0; bottom: 0; }
+            .btn-location { bottom: 120px; right: 20px; }
+            #map { width: 100% !important; margin-right: 0 !important; }
+        }
+
+        /* 간단 알림 토스트 */
+        .toast-msg {
+            position: fixed;
+            bottom: 100px; /* 내 위치 버튼보다 살짝 위 */
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(33, 37, 41, 0.9); /* 반투명 검정 */
+            color: white;
+            padding: 12px 25px;
+            border-radius: 50px;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            z-index: 9999;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.5s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap; /* 줄바꿈 방지 */
+        }
+
+        /* 나타날 때 클래스 */
+        .toast-msg.show {
+            opacity: 1;
+            visibility: visible;
+            bottom: 110px; /* 살짝 위로 올라오는 효과 */
+        }
+    </style>
+</head>
+<body>
+<div id="simpleToast" class="toast-msg">
+    <span>📢 현재 <b>서울시</b> 데이터만 지원됩니다.</span>
+</div>
+
+<div class="search-container">
+    <button class="btn-main" onclick="runAnalysis()" id="analyzeBtn">
+        🚀 현 지도 위치 분석하기
+    </button>
+</div>
+
+<div id="map"></div>
+
+<button class="btn-location" onclick="moveToCurrentLocation()" title="내 위치로 이동">🎯</button>
+
+<div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <span class="sidebar-title">🚩 입지 분석 리포트</span>
+        <button class="btn-close" onclick="closeSidebar()">×</button>
+    </div>
+    <div class="sidebar-content">
+        <div class="score-box">
+            <div class="score-number" id="sideScore">0.0</div>
+            <div class="score-label">종합 입지 점수 (10점 만점)</div>
+            <div class="score-rank" id="sideRank">-</div>
+        </div>
+
+        <div class="chart-wrapper">
+            <canvas id="radarChart"></canvas>
+        </div>
+
+        <div class="stat-list" id="statList">
+        </div>
+    </div>
+</div>
+
+<script>
+    // 1. 설정 및 데이터
+    // 지하철 노선 색상 데이터
+    const lineColors = {
+        '1호선': '#0052A4', '2호선': '#00A84D', '3호선': '#EF7C1C', '4호선': '#00A4E3',
+        '5호선': '#996CAC', '6호선': '#CD7C2F', '7호선': '#747F00', '8호선': '#E6186C',
+        '9호선': '#BDB092', '신분당선': '#D4003B', '수인분당선': '#F5A200', '경의중앙선': '#77C4A3',
+        '경춘선': '#0C8E72', '공항철도': '#0090D2', '의정부경전철': '#FD8100', '에버라인': '#569C5C',
+        'GTX-A': '#9A6292', '서해선': '#81A914', '김포골드라인': '#A17800', '신림선': '#6789CA', '우이신설선': '#B0CE18'
+    };
+
+    // 카테고리별 메타 데이터 (아이콘 색상, 배점 기준 등)
+    const categoryMeta = {
+        transport: { label: '교통', color: '#28a745', bg: '#e8f5e9', icon: '🚇', maxScore: 20 },
+        medical:   { label: '의료', color: '#dc3545', bg: '#f8d7da', icon: '🏥', maxScore: 15 },
+        mart:      { label: '편의', color: '#fd7e14', bg: '#fff3cd', icon: '🏪', maxScore: 15 },
+        food:      { label: '음식', color: '#007bff', bg: '#e7f5ff', icon: '🍔', maxScore: 30 },
+        cafe:      { label: '카페', color: '#6f42c1', bg: '#f3d9fa', icon: '☕', maxScore: 20 }
+    };
+
+    // 전역 변수
+    let map, markersCluster, currentCircle;
+    let analysisResult = {};
+    let activeMarkers = {}; // 현재 지도에 표시된 마커 그룹 저장
+    let myChart = null; // 차트 인스턴스
+
+    // 2. 초기화 (지도 & 차트)
+
+      window.onload = function() {
+        setTimeout(() => {
+            const toast = document.getElementById('simpleToast');
+            if (toast) {
+                toast.classList.add('show');
+
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 10000); // 10초
+            }
+        }, 500);
+
+
+        // 지도 생성
+        map = L.map('map', { zoomControl: false }).setView([37.5665, 126.9780], 15);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        markersCluster = L.markerClusterGroup({
+            spiderfyOnMaxZoom: true,
+            showCoverageOnHover: false,
+            zoomToBoundsOnClick: true,
+            maxClusterRadius: 50
+        });
+        map.addLayer(markersCluster);
+
+        if (navigator.geolocation) moveToCurrentLocation();
+        initChart();
+    };
+
+    function initChart() {
+        const ctx = document.getElementById('radarChart').getContext('2d');
+        myChart = new Chart(ctx, {
+            type: 'radar',
+            data: {
+                labels: ['교통', '의료', '편의', '음식', '카페'],
+                datasets: [{
+                    label: '입지 점수',
+                    data: [0, 0, 0, 0, 0], // 초기값
+                    backgroundColor: 'rgba(200, 200, 200, 0.2)',
+                    borderColor: '#ccc',
+                    pointBackgroundColor: '#fff',
+                    pointBorderColor: '#ccc',
+                    borderWidth: 2,
+                    pointRadius: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    r: {
+                        angleLines: { color: '#eee' },
+                        grid: { color: '#eee' },
+                        pointLabels: { font: { size: 12, weight: 'bold', family: 'Pretendard' }, color: '#555' },
+                        suggestedMin: 0,
+                        suggestedMax: 10, // 10점 만점으로 정규화하여 표시
+                        ticks: { display: false, stepSize: 2 }
+                    }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+    }
+
+    // 3. 핵심 로직
+    // 분석 실행
+    function runAnalysis() {
+        const center = map.getCenter();
+        const radiusKm = 0.5;
+        const btn = document.getElementById('analyzeBtn');
+
+        // UI 상태 변경
+        btn.innerHTML = `<span class="spinner-border"></span> 분석 중...`;
+        btn.disabled = true;
+        closeSidebar();
+
+        // 기존 레이어 정리
+        markersCluster.clearLayers();
+        activeMarkers = {};
+        if (currentCircle) map.removeLayer(currentCircle);
+
+        // 반경 원 그리기
+        currentCircle = L.circle(center, {
+            color: '#007bff', fillColor: '#007bff', fillOpacity: 0.1, radius: radiusKm * 1000, weight: 1
+        }).addTo(map);
+        map.fitBounds(currentCircle.getBounds());
+
+        // API 호출
+        fetch(`/api/nearby?lat=${center.lat}&lon=${center.lng}&km=${radiusKm}`)
+            .then(res => res.json())
+            .then(data => {
+                analysisResult = data;
+                updateDashboard(data);
+                openSidebar();
+            })
+            .catch(err => {
+                alert("분석 중 오류가 발생했습니다: " + err.message);
+                console.error(err);
+            })
+            .finally(() => {
+                btn.innerHTML = "🚀 현 지도 위치 분석하기";
+                btn.disabled = false;
+            });
+    }
+
+    // 대시보드 업데이트 (점수, 차트, 리스트)
+    function updateDashboard(data) {
+        // 1. 텍스트 업데이트
+        const scoreEl = document.getElementById('sideScore');
+        const rankEl = document.getElementById('sideRank');
+
+        scoreEl.innerText = data.totalScore;
+        rankEl.innerText = data.grade + " 등급";
+
+        // 등급별 색상 테마 적용
+        let themeColor = '#7f8c8d'; // 기본
+        let themeBg = 'rgba(127, 140, 141, 0.2)';
+
+        if (data.grade.includes("다이아")) { themeColor = '#6f42c1'; themeBg = 'rgba(111, 66, 193, 0.2)'; }
+        else if (data.grade.includes("골드")) { themeColor = '#d63031'; themeBg = 'rgba(214, 48, 49, 0.2)'; }
+        else if (data.grade.includes("실버")) { themeColor = '#e17055'; themeBg = 'rgba(225, 112, 85, 0.2)'; }
+
+        scoreEl.style.color = themeColor;
+        rankEl.style.color = themeColor;
+
+        // 2. 차트 업데이트 (데이터 정규화: 10점 만점 기준으로 변환)
+        // 백엔드 점수(예: 음식 30점)를 차트 스케일(10점)로 맞춤
+        const normalize = (score, max) => (score / max) * 10;
+
+        myChart.data.datasets[0].data = [
+            normalize(data.transport.score, categoryMeta.transport.maxScore),
+            normalize(data.medical.score, categoryMeta.medical.maxScore),
+            normalize(data.mart.score, categoryMeta.mart.maxScore),
+            normalize(data.food.score, categoryMeta.food.maxScore),
+            normalize(data.cafe.score, categoryMeta.cafe.maxScore)
+        ];
+
+        myChart.data.datasets[0].borderColor = themeColor;
+        myChart.data.datasets[0].backgroundColor = themeBg;
+        myChart.data.datasets[0].pointBorderColor = themeColor;
+        myChart.update();
+
+        // 3. 리스트 렌더링
+        renderList(data);
+    }
+
+    // 리스트 렌더링 함수
+    function renderList(data) {
+        const listEl = document.getElementById('statList');
+        listEl.innerHTML = '';
+
+        const keys = ['transport', 'medical', 'mart', 'food', 'cafe'];
+
+        keys.forEach(key => {
+            const info = data[key];
+            const meta = categoryMeta[key];
+            const items = info.items || [];
+
+            // 아이템 HTML 생성
+            let itemsHtml = '';
+            if (items.length > 0) {
+                const limit = 30; // 30개까지만 표시
+                itemsHtml = items.slice(0, limit).map(shop => {
+                    const badge = getSubwayBadgeHtml(shop.shopName);
+                    const cleanName = shop.shopName.replace(/\(.*\)/, '').trim();
+                    return `
+                        <div class="shop-item" onclick="focusOnMap(${shop.lat}, ${shop.lon}, '${key}')">
+                            <span class="shop-name">${cleanName} ${badge}</span>
+                            <span class="shop-dist">${Math.round(shop.dist)}m</span>
+                        </div>
+                    `;
+                }).join('');
+
+                if (items.length > limit) {
+                    itemsHtml += `<div style="text-align:center; padding:8px; color:#999; font-size:12px;">외 ${items.length - limit}개 더 있음...</div>`;
+                }
+            } else {
+                itemsHtml = `<div style="padding:15px; text-align:center; color:#999; font-size:13px;">근처에 해당 시설이 없습니다.</div>`;
+            }
+
+            // 그룹 HTML 추가
+            const html = `
+                <div class="category-group" id="group-${key}">
+                    <div class="category-header" onclick="toggleCategory('${key}')">
+                        <div class="cat-info">
+                            <div class="cat-icon" style="background:${meta.bg}; color:${meta.color}">${meta.icon}</div>
+                            <span class="cat-title">${meta.label}</span>
+                        </div>
+                        <div class="cat-info">
+                            <span class="cat-count">${info.count}개</span>
+                            <span class="arrow-icon">▼</span>
+                        </div>
+                    </div>
+                    <div class="shop-list">${itemsHtml}</div>
+                </div>
+            `;
+            listEl.insertAdjacentHTML('beforeend', html);
+        });
+    }
+
+    // 4. 인터랙션 및 유틸리티
+    // 카테고리 토글 (마커 제어)
+    function toggleCategory(key) {
+        const el = document.getElementById(`group-${key}`);
+        const isActive = el.classList.contains('active');
+        const meta = categoryMeta[key];
+
+        // 1. 기존 마커 제거
+        if (activeMarkers[key]) {
+            markersCluster.removeLayers(activeMarkers[key]);
+            delete activeMarkers[key];
+        }
+
+        // 2. 토글 UI 처리
+        document.querySelectorAll('.category-group').forEach(g => g.classList.remove('active')); // 아코디언 효과 (하나만 열기)
+
+        if (!isActive) {
+            el.classList.add('active');
+
+            // 3. 새 마커 추가
+            const items = analysisResult[key].items;
+            if (items && items.length > 0) {
+                const newMarkers = items.map(shop => {
+                    const badge = getSubwayBadgeHtml(shop.shopName);
+                    const name = shop.shopName.replace(/\(.*\)/, '').trim();
+
+                    // 커스텀 마커 아이콘
+                    const icon = L.divIcon({
+                        className: 'custom-div-icon',
+                        html: `<div style="background:${meta.color}; width:100%; height:100%; border-radius:50%;"></div>`,
+                        iconSize: [12, 12]
+                    });
+
+                    return L.marker([shop.lat, shop.lon], { icon: icon })
+                        .bindPopup(`
+                            <div style="font-family:'Pretendard'; padding:5px;">
+                                <div style="font-weight:bold; font-size:15px; margin-bottom:5px;">${name} ${badge}</div>
+                                <div style="color:#666; font-size:12px;">${shop.categorySub || meta.label}</div>
+                                <div style="color:${meta.color}; font-weight:bold; font-size:13px; margin-top:5px;">거리: ${Math.round(shop.dist)}m</div>
+                            </div>
+                        `);
+                });
+
+                markersCluster.addLayers(newMarkers);
+                activeMarkers[key] = newMarkers; // 저장
+
+                // 마커들이 보이도록 줌 조절
+                // if (newMarkers.length > 0) map.fitBounds(L.featureGroup(newMarkers).getBounds().pad(0.2));
+            }
+        }
+    }
+
+    // 리스트 클릭 시 지도 이동
+    function focusOnMap(lat, lon, key) {
+        // 해당 그룹 마커가 없으면 생성
+        const groupEl = document.getElementById(`group-${key}`);
+        if (!groupEl.classList.contains('active')) {
+            toggleCategory(key);
+        }
+
+        // 지도 이동 및 줌
+        map.flyTo([lat, lon], 18, { duration: 1.2 });
+
+        // 마커 찾아서 팝업 열기 (클러스터 내부 처리)
+        setTimeout(() => {
+            if (activeMarkers[key]) {
+                const targetMarker = activeMarkers[key].find(m => {
+                    const pos = m.getLatLng();
+                    // 부동소수점 오차 고려하여 비교
+                    return Math.abs(pos.lat - lat) < 0.000001 && Math.abs(pos.lng - lon) < 0.000001;
+                });
+
+                if (targetMarker) {
+                    markersCluster.zoomToShowLayer(targetMarker, () => {
+                        targetMarker.openPopup();
+                    });
+                }
+            }
+        }, 1300);
+    }
+
+    // 지하철 배지 HTML 생성
+    function getSubwayBadgeHtml(name) {
+        if (!name) return '';
+        const match = name.match(/\(([^)]+)\)/); // 괄호 안 내용 추출
+        if (match && match[1]) {
+            const line = match[1].split(',')[0]; // 여러 노선일 경우 첫 번째만
+            const color = lineColors[line] || '#999';
+            return `<span style="background:${color}; color:#fff; padding:2px 6px; border-radius:4px; font-size:11px; margin-left:4px; vertical-align:middle; font-weight:normal;">${line}</span>`;
+        }
+        return '';
+    }
+
+    // 사이드바 제어
+    function openSidebar() {
+        const sb = document.getElementById('sidebar');
+        sb.classList.add('active');
+        if (window.innerWidth > 768) {
+            document.getElementById('map').style.width = "calc(100% - 420px)";
+        }
+    }
+
+    function closeSidebar() {
+        const sb = document.getElementById('sidebar');
+        sb.classList.remove('active');
+        document.getElementById('map').style.width = "100%";
+    }
+
+    // 내 위치 이동
+    function moveToCurrentLocation() {
+        if (!navigator.geolocation) {
+            alert("브라우저가 위치 정보를 지원하지 않습니다.");
+            return;
+        }
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                const lat = pos.coords.latitude;
+                const lng = pos.coords.longitude;
+                map.flyTo([lat, lng], 16, { duration: 1.5 });
+
+                // 내 위치 마커
+                L.circleMarker([lat, lng], {
+                    color: '#fff', fillColor: '#2c3e50', fillOpacity: 1, radius: 8, weight: 3
+                }).addTo(map).bindPopup("현재 내 위치").openPopup();
+            },
+            () => alert("위치 정보를 가져올 수 없습니다.")
+        );
+    }
+</script>
+</body>
+</html>

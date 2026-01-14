@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>상권 분석 시스템 (Location Score)</title>
+    <style>
+        /* 기본 레이아웃 설정 */
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            margin: 0; padding: 0;
+            background: #f0f2f5; /* 눈이 편한 부드러운 회색 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        /* 카드 디자인 (중심부) */
+        .card {
+            background: white;
+            width: 380px;
+            padding: 50px 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+            text-align: center;
+            position: relative; /* 관리자 링크 위치 잡기용 */
+        }
+
+        /* 타이포그래피 */
+        h1 { color: #2c3e50; margin: 10px 0; font-size: 26px; letter-spacing: -1px; }
+        p { color: #7f8c8d; font-size: 15px; margin-bottom: 40px; }
+        .icon { font-size: 60px; margin-bottom: 15px; display: inline-block; animation: float 3s ease-in-out infinite; }
+
+        /* [Main] 사용자 버튼 - 크고 눈에 띄게 */
+        .btn-main {
+            display: block;
+            width: 100%;
+            padding: 18px 0;
+            background: linear-gradient(135deg, #007bff, #0056b3); /* 세련된 그라데이션 */
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: bold;
+            text-decoration: none;
+            box-shadow: 0 4px 15px rgba(0,123,255,0.3);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn-main:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,123,255,0.4);
+        }
+
+        /* [Admin] 관리자 링크 - 작고 눈에 안 띄게 (텍스트 형태) */
+        .admin-link {
+            display: inline-block;
+            margin-top: 30px;
+            color: #adb5bd; /* 아주 연한 회색 */
+            font-size: 13px;
+            text-decoration: none;
+            transition: color 0.3s;
+            border-bottom: 1px solid transparent;
+        }
+        .admin-link:hover {
+            color: #495057; /* 호버 시 진한 회색 */
+            border-bottom: 1px solid #495057;
+        }
+
+        /* 깨알 애니메이션 */
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div class="icon">🗺️</div>
+    <h1>Location Score</h1>
+    <p>데이터로 확인하는 우리 동네 상권 점수</p>
+
+    <a href="/map" class="btn-main">
+        🚀 내 주변 점수 확인하기
+    </a>
+
+    <div>
+        <a href="/manager" class="admin-link">
+            ⚙️ 관리자 데이터 업로드
+        </a>
+    </div>
+</div>
+
+</body>
+</html>

@@ -185,7 +185,10 @@ public class ShopService {
             else if (main.contains("의료") || sub.contains("병원") || sub.contains("약국") || sub.contains("의원")) {
                 if (!sub.contains("동물") && !sub.contains("수의")) mList.add(item);
             }
-            else if (sub.contains("편의점") || sub.contains("슈퍼") || sub.contains("마트") || (main.contains("소매") && (name.contains("24") || name.contains("GS") || name.contains("CU")))) cList.add(item);
+            else if (main.contains("편의") || sub.contains("편의점") || sub.contains("슈퍼") || sub.contains("마트") ||
+                    (main.contains("소매") && (name.toUpperCase().contains("24") || name.toUpperCase().contains("GS") || name.toUpperCase().contains("CU")))) {
+                cList.add(item);
+            }
             else if (sub.contains("카페") || sub.contains("커피") || sub.contains("찻집") || (main.contains("음식") && (name.contains("스타벅스") || name.contains("이디야") || name.contains("카페")))) cafList.add(item);
             else if (main.contains("음식")) fList.add(item);
         }

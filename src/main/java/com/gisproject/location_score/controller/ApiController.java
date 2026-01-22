@@ -44,7 +44,7 @@ public class ApiController {
             @RequestParam double minLon, @RequestParam double minLat,
             @RequestParam double maxLon, @RequestParam double maxLat) {
 
-        // [안전장치 2] 지도 범위 제한 (너무 줌아웃 된 상태 방지)
+        // [안전장치 2] 지도 범위 제한
         // 위도/경도 차이가 약 0.05도(약 5km 정도) 이상이면 요청 거부 (성능 보호)
         if (Math.abs(maxLon - minLon) > 0.05 || Math.abs(maxLat - minLat) > 0.05) {
             return ResponseEntity.ok("{\"type\": \"FeatureCollection\", \"features\": []}");

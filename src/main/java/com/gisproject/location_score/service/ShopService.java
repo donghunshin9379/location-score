@@ -2,11 +2,11 @@ package com.gisproject.location_score.service;
 
 import com.gisproject.location_score.dto.AnalysisResponse;
 import com.gisproject.location_score.entity.Shop;
-import com.gisproject.location_score.repository.ShopRepository;
-import com.gisproject.location_score.util.CoordinateTransformer; // 유틸 호출
-import com.gisproject.location_score.util.EncodingDetector;    // 유틸 호출
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
+import com.gisproject.location_score.repository.ShopBatchRepository; // [최적화] 대량 삽입용
+import com.gisproject.location_score.repository.ShopRepository;      // [최적화] 조회/공간쿼리용
+import com.gisproject.location_score.util.CoordinateTransformer;
+import com.gisproject.location_score.util.EncodingDetector;
+import com.gisproject.location_score.util.ShopCategory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.locationtech.jts.geom.Coordinate;
@@ -32,24 +32,23 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ShopService {
 
     private final ShopRepository shopRepository;
-    private final GeometryFactory geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
+    private final ShopBatchRepository shopBatchRepository;
 
-    @PersistenceContext
-    private EntityManager entityManager;
+    // SRID 4326(위경도) 기준 Geometry 생성기
+    private final GeometryFactory geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
 
     // 진행률 상태 저장소
     public static final ConcurrentHashMap<String, String> JOB_STATUS = new ConcurrentHashMap<>();
 
     /**
-     * [최종] 대용량 CSV 업로드
+     * [기능 1] 대용량 CSV 업로드 (JDBC Batch Update 적용)
      */
     @Async
-    @Transactional
     public void uploadLargeCsv(File tempFile, String jobId, int sourceSrid) {
         long startTime = System.currentTimeMillis();
         JOB_STATUS.put(jobId, "데이터 분석 및 저장 시작...");
 
-        // [1] 유틸 호출: 인코딩 자동 감지
+        // 인코딩 자동 감지
         Charset charset = EncodingDetector.detect(tempFile);
         log.info("Job {} - 감지된 인코딩: {}", jobId, charset);
 
@@ -60,7 +59,6 @@ public class ShopService {
 
             // 헤더 파싱
             String[] headers = headerLine.replace("\"", "").split(",");
-
             int nameIdx = findIndex(headers, "상호명", "업소명", "가게명", "shop_name");
             int mainIdx = findIndex(headers, "상권업종대분류명", "대분류", "category_main");
             int subIdx = findIndex(headers, "상권업종소분류명", "소분류", "category_sub");
@@ -79,7 +77,6 @@ public class ShopService {
 
             while ((line = br.readLine()) != null) {
                 try {
-                    // 콤마 파싱 (따옴표 안 콤마 무시 정규식)
                     String[] rowData = line.split(",(?=([^\"]*\"[^\"]*\")*[^\"]*$)", -1);
                     if (rowData.length <= Math.max(latIdx, lonIdx)) continue;
 
@@ -90,12 +87,11 @@ public class ShopService {
                     double rawLat = Double.parseDouble(latStr);
                     double rawLon = Double.parseDouble(lonStr);
 
-                    // [2] 유틸 호출: 좌표 변환 (5179 -> 4326 등)
+                    // 좌표 변환 (GRS80 -> WGS84 등)
                     double[] coords = CoordinateTransformer.transform(sourceSrid, rawLon, rawLat);
-                    double finalLon = coords[0]; // x
-                    double finalLat = coords[1]; // y
+                    double finalLon = coords[0];
+                    double finalLat = coords[1];
 
-                    // Entity 생성
                     Shop shop = new Shop();
                     shop.setShopName(getVal(rowData, nameIdx));
                     shop.setCategoryMain(getVal(rowData, mainIdx));
@@ -103,27 +99,30 @@ public class ShopService {
                     shop.setAddress(getVal(rowData, addrIdx));
                     shop.setLat(finalLat);
                     shop.setLon(finalLon);
+                    // Geometry 생성 (PostGIS 저장용)
                     shop.setGeom(geometryFactory.createPoint(new Coordinate(finalLon, finalLat)));
 
                     batchList.add(shop);
                     count++;
 
-                } catch (Exception e) {
-                    continue; // 에러 행 무시
-                }
+                    if (batchList.size() >= 1000) {
+                        shopBatchRepository.batchInsertShops(batchList);
+                        batchList.clear(); // 메모리 즉시 확보
 
-                // [3] OOM 방지: 1000건마다 저장 후 메모리 비우기
-                if (batchList.size() >= 1000) {
-                    saveAndClear(batchList);
-                    if (count % 10000 == 0) {
-                        JOB_STATUS.put(jobId, count + "건 저장 중...");
-                        log.info("Job {} - {}건 진행", jobId, count);
+                        if (count % 10000 == 0) {
+                            JOB_STATUS.put(jobId, count + "건 저장 중...");
+                            log.info("Job {} - {}건 진행", jobId, count);
+                        }
                     }
+
+                } catch (Exception e) {
+                    continue; // 개별 행 에러는 무시하고 진행
                 }
             }
 
+            // 남은 데이터 처리
             if (!batchList.isEmpty()) {
-                saveAndClear(batchList);
+                shopBatchRepository.batchInsertShops(batchList);
             }
 
             long time = (System.currentTimeMillis() - startTime) / 1000;
@@ -137,64 +136,36 @@ public class ShopService {
         }
     }
 
-    private void saveAndClear(List<Shop> batchList) {
-        shopRepository.saveAll(batchList);
-        entityManager.flush(); // DB 전송
-        entityManager.clear(); // 메모리 비우기
-        batchList.clear();
-    }
-
-    private String getVal(String[] row, int idx) {
-        if (idx == -1 || idx >= row.length) return null;
-        return row[idx].replace("\"", "").trim();
-    }
-
-    private int findIndex(String[] headers, String... keywords) {
-        for (int i = 0; i < headers.length; i++) {
-            String h = headers[i].replace("\"", "").trim();
-            for (String kw : keywords) {
-                if (h.equalsIgnoreCase(kw) || h.contains(kw)) return i;
-            }
-        }
-        return -1;
-    }
-
-    // [기능 2] 기존 분석 로직
+    /**
+     * [기능 2] 상권 분석
+     */
     @Transactional(readOnly = true)
     public AnalysisResponse analyze(double lat, double lon, double radiusKm) {
         List<Shop> shops = shopRepository.findNearbyShops(lon, lat, radiusKm * 1000);
 
-        List<AnalysisResponse.ShopItem> tList = new ArrayList<>();
-        List<AnalysisResponse.ShopItem> mList = new ArrayList<>();
-        List<AnalysisResponse.ShopItem> cList = new ArrayList<>();
-        List<AnalysisResponse.ShopItem> fList = new ArrayList<>();
-        List<AnalysisResponse.ShopItem> cafList = new ArrayList<>();
+        List<AnalysisResponse.ShopItem> tList = new ArrayList<>(); // 교통
+        List<AnalysisResponse.ShopItem> mList = new ArrayList<>(); // 의료
+        List<AnalysisResponse.ShopItem> cList = new ArrayList<>(); // 편의
+        List<AnalysisResponse.ShopItem> fList = new ArrayList<>(); // 음식
+        List<AnalysisResponse.ShopItem> cafList = new ArrayList<>(); // 카페
 
         for (Shop s : shops) {
             int dist = (int) calculateDistance(lat, lon, s.getLat(), s.getLon());
-            String main = s.getCategoryMain() == null ? "" : s.getCategoryMain();
-            String sub = s.getCategorySub() == null ? "" : s.getCategorySub();
-            String name = s.getShopName() == null ? "" : s.getShopName();
 
             AnalysisResponse.ShopItem item = new AnalysisResponse.ShopItem(
-                    s.getId(), name, main, sub, s.getLat(), s.getLon(), dist
+                    s.getId(), s.getShopName(), s.getCategoryMain(), s.getCategorySub(), s.getLat(), s.getLon(), dist
             );
 
-            //분류 로직
-            if (main.contains("교통") && (sub.contains("지하철") || sub.contains("철도") || sub.contains("역") || sub.contains("여객"))) tList.add(item);
-            else if (main.contains("의료") || sub.contains("병원") || sub.contains("약국") || sub.contains("의원")) {
-                if (!sub.contains("동물") && !sub.contains("수의")) mList.add(item);
+            switch (ShopCategory.classify(s)) {
+                case TRANSPORT -> tList.add(item);
+                case MEDICAL -> mList.add(item);
+                case CONVENIENCE -> cList.add(item);
+                case CAFE -> cafList.add(item);
+                case FOOD -> fList.add(item);
             }
-            else if (main.contains("편의") || sub.contains("편의점") || sub.contains("슈퍼") || sub.contains("마트") ||
-                    (main.contains("소매") && (name.toUpperCase().contains("24") || name.toUpperCase().contains("GS") || name.toUpperCase().contains("CU")))) {
-                cList.add(item);
-            }
-            else if (sub.contains("카페") || sub.contains("커피") || sub.contains("찻집") || (main.contains("음식") && (name.contains("스타벅스") || name.contains("이디야") || name.contains("카페")))) cafList.add(item);
-            else if (main.contains("음식")) fList.add(item);
         }
 
-        sortListByDist(tList); sortListByDist(mList); sortListByDist(cList); sortListByDist(fList); sortListByDist(cafList);
-
+        // 점수 계산 (각 리스트 사이즈 기반)
         int tScore = calcScore(tList.size(), 3, 20);
         int mScore = calcScore(mList.size(), 50, 15);
         int cScore = calcScore(cList.size(), 30, 15);
@@ -215,6 +186,8 @@ public class ShopService {
                 .build();
     }
 
+    // --- Helper Methods ---
+
     private int calcScore(int current, int target, int maxScore) {
         if (current >= target) return maxScore;
         return (int) Math.round(((double) current / target) * maxScore);
@@ -231,13 +204,29 @@ public class ShopService {
         return "브론즈";
     }
 
+    // 표시용 거리 계산 (Haversine)
     private double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
         double theta = lon1 - lon2;
         double dist = Math.sin(Math.toRadians(lat1)) * Math.sin(Math.toRadians(lat2)) +
                 Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.cos(Math.toRadians(theta));
         dist = Math.acos(dist);
         dist = Math.toDegrees(dist);
-        dist = dist * 60 * 1.1515 * 1609.344;
+        dist = dist * 60 * 1.1515 * 1609.344; // 미터 단위 변환
         return dist;
+    }
+
+    private String getVal(String[] row, int idx) {
+        if (idx == -1 || idx >= row.length) return null;
+        return row[idx].replace("\"", "").trim();
+    }
+
+    private int findIndex(String[] headers, String... keywords) {
+        for (int i = 0; i < headers.length; i++) {
+            String h = headers[i].replace("\"", "").trim();
+            for (String kw : keywords) {
+                if (h.equalsIgnoreCase(kw) || h.contains(kw)) return i;
+            }
+        }
+        return -1;
     }
 }

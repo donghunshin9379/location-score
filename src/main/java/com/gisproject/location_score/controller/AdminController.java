@@ -5,6 +5,7 @@ import com.gisproject.location_score.repository.ShopRepository;
 import com.gisproject.location_score.service.ShopService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,7 +31,6 @@ public class AdminController {
 
     /**
      * [ETL] 대용량 CSV 업로드 (비동기 처리 + OOM 방지)
-     * - 변경 방식: 파일을 임시 저장 후 백그라운드에서 스트리밍 처리
      */
     @PostMapping("/upload")
     public ResponseEntity<?> uploadFile(
@@ -64,7 +64,6 @@ public class AdminController {
 
     /**
      * [Status] 업로드 진행률 조회 (프론트엔드 폴링용)
-     * - Job ID를 주면 현재 몇 건 저장했는지 알려줍니다.
      */
     @GetMapping("/status/{jobId}")
     public ResponseEntity<?> getUploadStatus(@PathVariable("jobId") String jobId) {
@@ -99,11 +98,20 @@ public class AdminController {
     @PostMapping("/maintenance/optimize")
     public ResponseEntity<String> optimizeDatabase() {
         try {
+            // 1. 데드 튜플 정리 및 통계 갱신 (트랜잭션 없이 실행)
             jdbcTemplate.execute("VACUUM ANALYZE shop_data");
-            jdbcTemplate.execute("REINDEX INDEX idx_shop_geom");
-            return ResponseEntity.ok("공간 인덱스 최적화 및 통계 정보 갱신 완료");
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("최적화 실패: " + e.getMessage());
+
+            // 2. 인덱스 재구축 (서비스 중단 방지를 위해 CONCURRENTLY)
+            jdbcTemplate.execute("REINDEX INDEX CONCURRENTLY idx_shop_geom");
+
+
+            return ResponseEntity.ok("최적화 완료: VACUUM 및 인덱스 재구축 성공");
+
+        } catch (DataAccessException e) {
+            // SQL 에러 상세 로그
+            log.error("GIS 최적화 실패", e);
+            return ResponseEntity.internalServerError()
+                    .body("최적화 실패 (로그 확인 필요): " + e.getMostSpecificCause().getMessage());
         }
     }
 

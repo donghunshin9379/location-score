@@ -45,5 +45,7 @@ pgdata/
 *.pem
 upload.sh
 src/main/resources/application-prod.properties
-src/main/resources/application-prod.properties
 src/main/resources/application.properties
+src/main/resources/*.p12
+*.p12
+keystore.p12
